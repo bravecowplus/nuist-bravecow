@@ -16,21 +16,21 @@
 ```
 小组/
 ├── core/
-│   └── game_logic.py      # 核心游戏逻辑（组员C）
+│   └── game_logic.py      # 核心游戏逻辑
 ├── static/
-│   ├── index.html          # 前端页面（组员B）
-│   ├── style.css           # 样式表（组员B）
-│   └── main.js             # 交互逻辑（组员B）
-├── local_game.py           # 本地对战服务（组员D）
-├── server.py               # 联机对战服务（组员E）
-├── docs/                   # 文档（组员A）
-├── README.md               # 本文件（组员A）
-└── 答辩材料/               # 答辩PPT等（组员A）
+│   ├── index.html          # 前端页面
+│   ├── style.css           # 样式表
+│   └── main.js             # 交互逻辑
+├── local_game.py           # 本地对战服务
+├── server.py               # 联机对战服务
+├── docs/                   # 文档
+├── README.md               # 本文件
+└── 答辩材料/               # 答辩PPT等
 ```
 
 ## 环境要求
 
-- Python 3.8+
+- Python 3.8+  最好是10/11版本
 - 浏览器（Chrome / Edge / Firefox）
 
 ## 安装与运行
@@ -71,12 +71,3 @@ python server.py
   - 💥 命中机头（深红，该飞机击毁）
 - **胜负**：先击毁对方全部3个机头者获胜
 
-## 成员分工
-
-| 成员 | 角色 | 职责 |
-|------|------|------|
-| 组员A | 组长 | 项目规范、文档、整合、答辩 |
-| 组员B | 前端 | HTML/CSS/JS 页面开发 |
-| 组员C | 核心逻辑 | Python 游戏规则引擎 |
-| 组员D | 本地对战 | Python 本地回合对战服务 |
-| 组员E | 联机对战 | Python WebSocket 联网服务 |
