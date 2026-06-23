@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<!--
+index.html — 飞机对战游戏 前端页面结构
+==========================================
+被对接：main.js 通过 id 操作 DOM，style.css 通过 class 控制样式
+职责：定义四棋盘布局的静态骨架，棋盘格子由 JS 动态生成
+-->
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -8,7 +14,7 @@
 </head>
 <body>
 
-    <!-- ==================== 顶部标题栏 ==================== -->
+    <!-- ===== 顶部标题栏 ===== -->
     <div id="header">
         <h1>飞机对战游戏</h1>
         <div id="mode-selector">
@@ -17,7 +23,7 @@
         </div>
     </div>
 
-    <!-- ==================== 联机房间面板 ==================== -->
+    <!-- ===== 联机房间面板（默认隐藏） ===== -->
     <div id="room-panel" style="display: none;">
         <div class="room-controls">
             <button id="btn-create-room" class="btn-primary">创建房间</button>
@@ -31,19 +37,21 @@
         </div>
     </div>
 
-    <!-- ==================== 信息栏 ==================== -->
+    <!-- ===== 信息栏 ===== -->
     <div id="info-bar">
         <div id="turn-indicator">当前回合：玩家1</div>
         <div id="message-box">点击你的"攻击敌方"棋盘开始</div>
         <button id="btn-restart" class="btn-secondary">重新开始</button>
     </div>
 
-    <!-- ==================== 主游戏区：四棋盘 ==================== -->
+    <!-- ===== 主游戏区：四棋盘 ===== -->
     <div id="game-area">
-        <!-- 玩家1 区域 -->
+
+        <!-- 玩家1 -->
         <div class="player-zone" id="zone-p0">
             <h2 class="zone-title active-player">玩家1</h2>
             <div class="zone-boards">
+                <!-- 我方部署：createBoard() 塞格子，updateMyBoard(0) 刷新，遮罩 updateTurnUI() 控制 -->
                 <div class="board-wrap" id="wrap-my-0">
                     <h3>我方部署</h3>
                     <div class="board-cover-wrapper">
@@ -51,6 +59,7 @@
                         <div class="board-cover" id="cover-0">🙈<br>对方回合<br>不可查看</div>
                     </div>
                 </div>
+                <!-- 攻击敌方：createBoard() 塞格子，updateEnemyBoard(0) 刷新，bindEnemyClicks(0) 绑事件 -->
                 <div class="board-wrap">
                     <h3>攻击敌方</h3>
                     <div class="board enemy-board" id="board-enemy-0"></div>
@@ -59,10 +68,9 @@
             </div>
         </div>
 
-        <!-- 分隔 -->
         <div class="zone-divider"></div>
 
-        <!-- 玩家2 区域 -->
+        <!-- 玩家2（结构镜像，id 尾号 _1） -->
         <div class="player-zone" id="zone-p1">
             <h2 class="zone-title">玩家2</h2>
             <div class="zone-boards">
@@ -82,7 +90,7 @@
         </div>
     </div>
 
-    <!-- ==================== 游戏结束弹窗 ==================== -->
+    <!-- ===== 游戏结束弹窗（默认隐藏） ===== -->
     <div id="game-over-modal" style="display: none;">
         <div class="modal-overlay"></div>
         <div class="modal-content">

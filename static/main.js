@@ -1,33 +1,47 @@
 /**
  * main.js — 飞机对战游戏（四棋盘布局）
  * 每个玩家独立拥有「我方部署」+「攻击敌方」两个棋盘
- * 回合自动切换，棋盘实时刷新，无需遮罩
+ * 回合自动切换，棋盘实时刷新
+ *
+ * 【两大玩法模式】
+ *   local  — 本地双人对战：两人共用一台电脑，通过 HTTP 调用本地 Flask 服务
+ *   online — 联机对战：两人各自用浏览器，通过 WebSocket 连接中心服务器
+ *
+ * 【调用链概览】
+ *   页面加载 → createAllBoards() + bindButtons() + setMode("local")
+ *   点击攻击格 → onEnemyClick() → sendAttackLocal/Online() → 服务端返回 →
+ *     handleLocalResult() 或 handleServerMessage() → 刷新棋盘 → updateTurnUI()
  */
 
-// ==================== 常量 ====================
+// ==================== 常量与工具函数 ====================
 
 const BOARD_SIZE = 10;
-const LOCAL_URL  = "";
-// WebSocket 地址
+const LOCAL_URL  = "";  // 本地模式下默认为当前页面地址
+
+/** 返回 WebSocket 服务器地址，联机模式专用 */
 function getWsUrl() {
     return "ws://localhost:8765";
 }
 
 // ==================== 全局状态 ====================
 
-let currentMode = "local";
-let currentTurn = 0;          // 当前回合玩家 0 或 1
+let currentMode = "local";       // "local" | "online"
+let currentTurn = 0;             // 当前回合玩家（0=玩家1, 1=玩家2）
 let gameOver = false;
-let ws = null;
-let currentRoomId = null;
-let myPlayerId = 0;           // 联机模式使用
+let ws = null;                   // WebSocket 实例（联机模式）
+let currentRoomId = null;        // 联机房间号
+let myPlayerId = 0;              // 联机时自己对应的玩家编号（0 或 1）
+let isMyTurn = false;            // 联机时是否轮到自己
 
-// 四个棋盘的格子 DOM 缓存: cells[playerIndex][row][col]
-let myCells    = [ [], [] ];   // 我方部署棋盘
-let enemyCells = [ [], [] ];   // 攻击敌方棋盘
+/** myCells[p][r][c] — 玩家 p 的「我方部署」棋盘上第 r 行第 c 列的 DOM 格子 */
+let myCells    = [ [], [] ];
+
+/** enemyCells[p][r][c] — 玩家 p 的「攻击敌方」棋盘上第 r 行第 c 列的 DOM 格子 */
+let enemyCells = [ [], [] ];
 
 // ==================== 初始化 ====================
 
+/** 页面加载完成后的入口：生成全部棋盘 → 绑定按钮 → 进入本地模式 */
 window.onload = function () {
     createAllBoards();
     bindButtons();
@@ -36,6 +50,7 @@ window.onload = function () {
 
 // ==================== 棋盘生成 ====================
 
+/** 为两个玩家各生成「我方部署」和「攻击敌方」棋盘，共 4 个空棋盘，每个棋盘包含 10×10 个 div.cell */
 function createAllBoards() {
     for (let p = 0; p <= 1; p++) {
         createBoard(`board-my-${p}`, myCells[p], true);
@@ -43,6 +58,12 @@ function createAllBoards() {
     }
 }
 
+/**
+ * 生成单个 10×10 棋盘的所有格子 DOM
+ * @param {string} boardId  — 棋盘容器的 HTML id
+ * @param {array}  cellArray — 二维数组引用，生成后 cellArray[r][c] = 对应格子 DOM
+ * @param {boolean} isMyBoard — 是否为我方棋盘（当前未使用，保留参数）
+ */
 function createBoard(boardId, cellArray, isMyBoard) {
     const container = document.getElementById(boardId);
     container.innerHTML = "";
@@ -62,14 +83,18 @@ function createBoard(boardId, cellArray, isMyBoard) {
     }
 }
 
-// 给敌方棋盘绑定点击（按玩家区分）
+/**
+ * 给指定玩家的「攻击敌方」棋盘的每一个格子绑定 click 事件
+ * 用 cloneNode 技巧先清除旧事件，再重新绑定，避免重复绑定
+ * @param {number} playerId — 0=玩家1, 1=玩家2
+ */
 function bindEnemyClicks(playerId) {
     const boardEl = document.getElementById(`board-enemy-${playerId}`);
-    // 先解绑旧事件（用 clone 方式）
+    // cloneNode 会丢弃所有旧的事件监听器
     const clone = boardEl.cloneNode(true);
     boardEl.parentNode.replaceChild(clone, boardEl);
 
-    // 重建 cell 引用
+    // 重建 enemyCells 引用并绑定新事件
     for (let r = 0; r < BOARD_SIZE; r++) {
         for (let c = 0; c < BOARD_SIZE; c++) {
             const cell = clone.children[r * BOARD_SIZE + c];
@@ -81,6 +106,13 @@ function bindEnemyClicks(playerId) {
 
 // ==================== 点击处理 ====================
 
+/**
+ * 玩家点击「攻击敌方」棋盘上某格的入口
+ * 做四层校验（游戏结束? 轮到自己? 格子未被攻击过?）→ 通过后发送攻击请求
+ * @param {number} playerId — 攻击方
+ * @param {number} row — 行 0-9
+ * @param {number} col — 列 0-9
+ */
 function onEnemyClick(playerId, row, col) {
     if (gameOver) {
         showMessage("游戏已结束，请重新开始");
@@ -109,6 +141,10 @@ function onEnemyClick(playerId, row, col) {
 
 // ==================== 发送攻击 ====================
 
+/**
+ * 本地模式：HTTP POST /attack → 服务端 game_logic.py 计算命中/落空/胜负
+ * 请求体：{ player: 攻击方编号, row: 行, col: 列 }
+ */
 async function sendAttackLocal(attackerId, row, col) {
     try {
         const resp = await fetch(`${LOCAL_URL}/attack`, {
@@ -128,6 +164,10 @@ async function sendAttackLocal(attackerId, row, col) {
     }
 }
 
+/**
+ * 联机模式：WebSocket 发送攻击指令
+ * 消息格式：{ type: "attack", room_id, row, col }
+ */
 function sendAttackOnline(row, col) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         showMessage("未连接到服务器");
@@ -138,36 +178,44 @@ function sendAttackOnline(row, col) {
 
 // ==================== 本地模式：结果处理 ====================
 
+/**
+ * 本地模式攻击后的完整响应处理：
+ * 显示消息 → 重新拉取双方棋盘 → 更新回合 UI → 检查胜负
+ * @param {object} data — 服务端返回 { result, message, current_turn, game_over, winner }
+ */
 async function handleLocalResult(data) {
     const { result, message, current_turn, game_over, winner } = data;
 
-    // 显示消息
     showMessage(message);
-
-    // 刷新全部四个棋盘（双方各自视角）
     await refreshBothPlayers();
 
-    // 更新回合
     currentTurn = current_turn;
     updateTurnUI();
 
-    // 胜负
     if (game_over) {
         gameOver = true;
         showGameOver(`玩家${winner + 1} 获胜！`);
     }
 }
 
-// 从服务端拉取双方视角并刷新四个棋盘
+/**
+ * 并行请求 GET /state?player=0 和 GET /state?player=1
+ * 用返回数据同时刷新四个棋盘 + 剩余敌机计数
+ * 每次攻击后、游戏重开后都会调用
+ */
 async function refreshBothPlayers() {
     try {
         const [s0, s1] = await Promise.all([
             fetch(`${LOCAL_URL}/state?player=0`).then(r => r.json()),
             fetch(`${LOCAL_URL}/state?player=1`).then(r => r.json()),
         ]);
-        updateMyBoard(0, s0.your_board);
+        // 【防偷看】当前行动方的棋盘数据 → 映射到双方"我方部署"
+        // 非行动方看到的也是行动方的飞机布局，无法偷看对方真实部署
+        const activePlayerBoard = s0.current_turn === 0 ? s0.your_board : s1.your_board;
+        updateMyBoard(0, activePlayerBoard);
+        updateMyBoard(1, activePlayerBoard);
+
         updateEnemyBoard(0, s0.enemy_board);
-        updateMyBoard(1, s1.your_board);
         updateEnemyBoard(1, s1.enemy_board);
         document.getElementById("score-0").textContent = s0.remaining_planes.enemy;
         document.getElementById("score-1").textContent = s1.remaining_planes.enemy;
@@ -179,6 +227,11 @@ async function refreshBothPlayers() {
 
 // ==================== 棋盘渲染 ====================
 
+/**
+ * 根据服务端数据更新某个玩家的「我方部署」棋盘格子样式
+ * @param {number} playerId — 玩家编号
+ * @param {number[][]} boardData — 10×10 数组，值: 0=空白, 1=机身, 2=机头
+ */
 function updateMyBoard(playerId, boardData) {
     for (let r = 0; r < BOARD_SIZE; r++) {
         for (let c = 0; c < BOARD_SIZE; c++) {
@@ -194,6 +247,13 @@ function updateMyBoard(playerId, boardData) {
     }
 }
 
+/**
+ * 根据服务端数据更新某个玩家的「攻击敌方」棋盘格子样式
+ * @param {number} playerId — 玩家编号
+ * @param {number[][]} boardData — 10×10 数组，值: -1=未攻击, 0=落空, 1=命中机身, 2=命中机头
+ * 每种值对应不同的 CSS 类和文字符号（○/✕/💥）
+ * 更新完后调用 bindEnemyClicks() 重新绑定事件
+ */
 function updateEnemyBoard(playerId, boardData) {
     for (let r = 0; r < BOARD_SIZE; r++) {
         for (let c = 0; c < BOARD_SIZE; c++) {
@@ -202,7 +262,6 @@ function updateEnemyBoard(playerId, boardData) {
             const val = boardData[r][c];
 
             if (val === -1) {
-                // 未攻击
                 cell.className = "cell cell-unknown";
                 cell.dataset.attacked = "false";
                 cell.textContent = "";
@@ -222,12 +281,20 @@ function updateEnemyBoard(playerId, boardData) {
             }
         }
     }
-    // 重新绑定点击（因为 cloneNode 会丢失事件）
     bindEnemyClicks(playerId);
 }
 
-// ==================== 回合 UI ====================
+// ==================== 回合 UI 更新 ====================
 
+/**
+ * 根据当前模式、回合、胜负状态，更新所有 UI 状态：
+ * - 回合指示器文字
+ * - 玩家区域高亮（.active）
+ * - 玩家标题高亮（.active-player）
+ * - 我方棋盘遮罩显隐（.hidden）
+ * - 攻击棋盘禁用状态（.disabled）
+ * - 联机模式额外：只显示自己的区域，遮罩全隐藏
+ */
 function updateTurnUI() {
     const indicator = document.getElementById("turn-indicator");
     const zone0 = document.getElementById("zone-p0");
@@ -253,6 +320,7 @@ function updateTurnUI() {
     }
 
     if (currentMode === "local") {
+        // 本地模式：根据 currentTurn 高亮当前玩家
         indicator.textContent = `当前回合：玩家${currentTurn + 1}`;
 
         title0.classList.toggle("active-player", currentTurn === 0);
@@ -260,26 +328,25 @@ function updateTurnUI() {
         zone0.classList.toggle("active", currentTurn === 0);
         zone1.classList.toggle("active", currentTurn === 1);
 
+        // 遮罩：轮到谁，谁的遮罩就透明
         if (cover0) cover0.classList.toggle("hidden", currentTurn === 0);
         if (cover1) cover1.classList.toggle("hidden", currentTurn === 1);
 
+        // 攻击棋盘：非自己回合则禁用
         if (boardE0) boardE0.classList.toggle("disabled", currentTurn !== 0);
         if (boardE1) boardE1.classList.toggle("disabled", currentTurn !== 1);
     } else {
-        // 联机模式
+        // 联机模式：高亮自己的区域，遮罩全隐藏
         indicator.textContent = isMyTurn ? "轮到你了！" : "等待对手...";
 
-        // 高亮自己的区域
         zone0.classList.toggle("active", myPlayerId === 0);
         zone1.classList.toggle("active", myPlayerId === 1);
         title0.classList.toggle("active-player", myPlayerId === 0);
         title1.classList.toggle("active-player", myPlayerId === 1);
 
-        // 只有自己的攻击棋盘在轮到自己时可点击
         if (boardE0) boardE0.classList.toggle("disabled", myPlayerId !== 0 || !isMyTurn);
         if (boardE1) boardE1.classList.toggle("disabled", myPlayerId !== 1 || !isMyTurn);
 
-        // 联机模式不需要遮盖（双方在不同电脑上）
         if (cover0) cover0.classList.add("hidden");
         if (cover1) cover1.classList.add("hidden");
     }
@@ -287,6 +354,10 @@ function updateTurnUI() {
 
 // ==================== 消息、弹窗、重启 ====================
 
+/**
+ * 在信息栏显示临时提示消息，文字变金色，2 秒后自动恢复原色
+ * @param {string} msg — 要显示的消息文字
+ */
 function showMessage(msg) {
     const box = document.getElementById("message-box");
     box.textContent = msg;
@@ -294,16 +365,23 @@ function showMessage(msg) {
     setTimeout(() => { box.style.color = ""; }, 2000);
 }
 
+/** 显示游戏结束弹窗：填入获胜文字 → 弹出模态框 → 更新回合 UI */
 function showGameOver(text) {
     document.getElementById("winner-text").textContent = text;
     document.getElementById("game-over-modal").style.display = "flex";
     updateTurnUI();
 }
 
+/** 隐藏游戏结束弹窗 */
 function hideGameOver() {
     document.getElementById("game-over-modal").style.display = "none";
 }
 
+/**
+ * 重置游戏状态：
+ * 本地模式 → POST /restart + 重新拉取双方棋盘
+ * 联机模式 → WebSocket 发送 restart 消息
+ */
 async function restartGame() {
     hideGameOver();
     gameOver = false;
@@ -327,6 +405,13 @@ async function restartGame() {
 
 // ==================== WebSocket（联机模式）====================
 
+/**
+ * 建立 WebSocket 连接并绑定四个生命周期回调：
+ * onopen     → 更新房间状态为"已连接"
+ * onmessage  → 所有服务端推送消息统一交给 handleServerMessage 路由
+ * onerror    → 提示连接错误
+ * onclose    → 更新房间状态为"已断开"
+ */
 function connectWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) return;
     ws = new WebSocket(getWsUrl());
@@ -346,6 +431,16 @@ function connectWebSocket() {
     };
 }
 
+/**
+ * WebSocket 消息路由器，根据 data.type 分发到对应处理逻辑：
+ *   room_created           — 房主：房间创建成功，等待对手
+ *   room_joined            — 客端：加入房间成功，等待游戏开始
+ *   game_start             — 双方：游戏正式开局，收到自己的棋盘初始数据
+ *   attack_result          — 双方：某次攻击的结果，更新棋盘 + 检查胜负
+ *   opponent_disconnected  — 对手断开连接
+ *   error                  — 服务端错误
+ * @param {object} data — 服务端推送的 JSON 消息
+ */
 function handleServerMessage(data) {
     switch (data.type) {
         case "room_created":
@@ -407,8 +502,12 @@ function handleServerMessage(data) {
     }
 }
 
-// ==================== 联机模式：显示自己的区域 ====================
+// ==================== 联机 UI ====================
 
+/**
+ * 联机模式下，根据 myPlayerId 只显示自己对应的玩家区域（zone-p0 或 zone-p1）
+ * 对方区域和分隔线均隐藏（双方不在同一台电脑上）
+ */
 function showMyZone() {
     const zone0 = document.getElementById("zone-p0");
     const zone1 = document.getElementById("zone-p1");
@@ -416,11 +515,18 @@ function showMyZone() {
 
     zone0.style.display = (myPlayerId === 0) ? "" : "none";
     zone1.style.display = (myPlayerId === 1) ? "" : "none";
-    divider.style.display = "none";  // 联机不显示分隔线
+    divider.style.display = "none";
 }
 
 // ==================== 模式切换 ====================
 
+/**
+ * 切换本地/联机模式的总控函数
+ * 重置所有全局状态 → 切换按钮高亮 → 显示/隐藏联机房间面板 →
+ * 本地模式：关闭 WebSocket、重建棋盘、请求服务端重置
+ * 联机模式：隐藏对方区域、建立 WebSocket 连接
+ * @param {string} mode — "local" | "online"
+ */
 function setMode(mode) {
     currentMode = mode;
     gameOver = false;
@@ -435,7 +541,6 @@ function setMode(mode) {
     document.getElementById("message-box").textContent = "";
     hideGameOver();
 
-    // 遮盖层隐藏
     const c0 = document.getElementById("cover-0");
     const c1 = document.getElementById("cover-1");
     if (c0) c0.classList.add("hidden");
@@ -445,7 +550,6 @@ function setMode(mode) {
         if (ws) { ws.close(); ws = null; }
         document.getElementById("room-status").textContent = "未连接";
         document.getElementById("room-id-display").textContent = "";
-        // 显示双方区域
         document.getElementById("zone-p0").style.display = "";
         document.getElementById("zone-p1").style.display = "";
         document.querySelector(".zone-divider").style.display = "";
@@ -459,7 +563,6 @@ function setMode(mode) {
             })
             .catch(() => {});
     } else {
-        // 联机模式：默认显示 zone-p0，收到 room_joined 后再切换
         document.getElementById("zone-p0").style.display = "";
         document.getElementById("zone-p1").style.display = "none";
         document.querySelector(".zone-divider").style.display = "none";
@@ -471,9 +574,17 @@ function setMode(mode) {
 
 // ==================== 按钮绑定 ====================
 
+/**
+ * 一次性绑定所有按钮和输入框的事件监听：
+ * - 模式按钮 → setMode()
+ * - 创建/加入房间 → WebSocket 发送消息（若未连接则先 connect + 延迟 500ms）
+ * - 重新开始/再来一局 → restartGame()
+ * - 房间号输入框回车 → 触发加入房间
+ */
 function bindButtons() {
     document.getElementById("btn-mode-local").addEventListener("click", () => setMode("local"));
     document.getElementById("btn-mode-online").addEventListener("click", () => setMode("online"));
+
     document.getElementById("btn-create-room").addEventListener("click", () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "create_room" }));
@@ -485,6 +596,7 @@ function bindButtons() {
             }, 500);
         }
     });
+
     document.getElementById("btn-join-room").addEventListener("click", () => {
         const rid = document.getElementById("input-room-id").value.trim().toUpperCase();
         if (!rid) { showMessage("请输入房间号"); return; }
@@ -498,8 +610,10 @@ function bindButtons() {
             }, 500);
         }
     });
+
     document.getElementById("btn-restart").addEventListener("click", restartGame);
     document.getElementById("btn-new-game").addEventListener("click", restartGame);
+
     document.getElementById("input-room-id").addEventListener("keydown", (e) => {
         if (e.key === "Enter") document.getElementById("btn-join-room").click();
     });
