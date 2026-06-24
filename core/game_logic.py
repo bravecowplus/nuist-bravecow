@@ -78,8 +78,7 @@ class GameLogic:
                 ○         ← 机头 (dr=0, dc=0)
             ○ ○ ○ ○ ○     ← 第1行 机身 + 机翼
                 ○         ← 第2行 机身
-                ○         ← 第3行 机身
-                ○         ← 第4行 机身（尾部）
+              o ○ o        ← 第3行 机身
 
         参数:
             direction: DIR_UP(0) / DIR_DOWN(1) / DIR_LEFT(2) / DIR_RIGHT(3)
@@ -92,8 +91,7 @@ class GameLogic:
             ( 1, -2, BODY), ( 1, -1, BODY), ( 1,  0, BODY),
             ( 1,  1, BODY), ( 1,  2, BODY),                         # 第1行 机身+机翼
             ( 2,  0, BODY),                                         # 第2行 机身
-            ( 3,  0, BODY),                                         # 第3行 机身
-            ( 4,  0, BODY),                                         # 第4行 机尾
+            ( 3, -1, BODY), ( 3,  0, BODY), ( 3,  1, BODY)          # 第3行 机身
         ]
 
         if direction == DIR_UP:
