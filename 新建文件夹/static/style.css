@@ -1,0 +1,231 @@
+/*
+ * style.css — 飞机对战游戏 样式表
+ * ==================================
+ * 被对接：index.html 通过 class 引用，main.js 通过 classList 动态切换状态
+ * 职责：四棋盘布局 / 格子状态色 / 遮罩防偷看 / 命中动画 / 响应式适配
+ */
+
+/* ===== CSS 变量：调色盘 + 尺寸 ===== */
+:root {
+    --cell-size: 38px;
+    --gap: 2px;
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --primary: #0f3460;
+    --accent: #e94560;
+    --gold: #f0c040;
+    --text: #eee;
+    --dim: #999;
+    --miss: #546e7a;
+    --hit: #ef5350;
+    --headshot: #b71c1c;
+    --unknown: #37474f;
+    --my-blue: #4fc3f7;
+    --my-head: #ff7043;
+}
+
+/* ===== 全局重置 ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+}
+
+/* ===== 顶部标题栏 ===== */
+#header { text-align: center; padding: 14px 0 6px; }
+#header h1 { font-size: 24px; letter-spacing: 2px; margin-bottom: 8px; }
+
+#mode-selector { display: inline-flex; border-radius: 8px; overflow: hidden; }
+
+.btn-mode {
+    padding: 6px 20px; border: 2px solid var(--primary);
+    background: transparent; color: var(--text); cursor: pointer;
+    font-size: 13px; transition: all 0.2s;
+}
+.btn-mode:first-child { border-radius: 8px 0 0 8px; }
+.btn-mode:last-child  { border-radius: 0 8px 8px 0; }
+.btn-mode.active {
+    background: var(--primary); border-color: var(--accent);
+    color: var(--gold); font-weight: bold;
+}
+.btn-mode:hover:not(.active) { background: rgba(15, 52, 96, 0.5); }
+
+/* ===== 联机房间面板 ===== */
+#room-panel {
+    background: var(--surface); border-radius: 10px;
+    padding: 12px 20px; margin: 6px auto;
+    max-width: 550px; flex-direction: column; gap: 10px;
+}
+.room-controls { display: flex; align-items: center; gap: 10px; justify-content: center; }
+.room-divider { color: var(--dim); font-size: 13px; }
+
+#input-room-id {
+    padding: 6px 12px; border-radius: 6px; border: 2px solid var(--primary);
+    background: var(--bg); color: var(--text); font-size: 13px;
+    width: 120px; text-align: center; text-transform: uppercase; letter-spacing: 2px;
+}
+#input-room-id:focus { outline: none; border-color: var(--accent); }
+
+#room-info { display: flex; justify-content: center; gap: 16px; font-size: 12px; }
+#room-status { color: var(--gold); }
+#room-id-display { color: var(--dim); }
+
+/* ===== 通用按钮 ===== */
+.btn-primary {
+    padding: 6px 16px; border: none; border-radius: 6px;
+    background: var(--accent); color: #fff; font-size: 13px;
+    cursor: pointer; font-weight: bold; transition: all 0.2s;
+}
+.btn-primary:hover { background: #d32f2f; }
+
+.btn-secondary {
+    padding: 6px 16px; border: 2px solid var(--primary); border-radius: 6px;
+    background: transparent; color: var(--text); font-size: 13px;
+    cursor: pointer; transition: all 0.2s;
+}
+.btn-secondary:hover { background: var(--primary); }
+
+/* ===== 信息栏 ===== */
+#info-bar {
+    display: flex; align-items: center; justify-content: center;
+    gap: 20px; padding: 8px 0;
+}
+#turn-indicator {
+    font-size: 15px; font-weight: bold; color: var(--gold);
+    padding: 6px 16px; border-radius: 16px; background: rgba(240,192,64,0.1);
+}
+#message-box { font-size: 13px; color: var(--dim); max-width: 300px; text-align: center; }
+
+/* ===== 主游戏区：四棋盘 ===== */
+#game-area {
+    display: flex; justify-content: center; align-items: flex-start;
+    gap: 0; padding: 8px 10px 20px;
+}
+
+.player-zone {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 8px 10px; border-radius: 12px; transition: background 0.3s;
+}
+.player-zone.active { background: rgba(240, 192, 64, 0.06); }
+
+.zone-title {
+    font-size: 16px; letter-spacing: 1px; margin-bottom: 6px;
+    padding: 4px 16px; border-radius: 12px;
+    color: var(--dim); transition: all 0.3s;
+}
+.zone-title.active-player { color: var(--gold); background: rgba(240, 192, 64, 0.12); }
+
+.zone-boards { display: flex; gap: 12px; }
+
+.zone-divider {
+    width: 3px;
+    background: linear-gradient(to bottom, transparent, var(--accent), transparent);
+    margin: 10px 6px; border-radius: 2px; align-self: stretch;
+}
+
+.board-wrap { text-align: center; position: relative; }
+.board-wrap h3 { font-size: 12px; color: var(--dim); margin-bottom: 4px; letter-spacing: 1px; }
+
+/* ===== 我方棋盘遮罩层 ===== */
+.board-cover-wrapper { position: relative; display: inline-block; }
+
+.board-cover {
+    position: absolute; inset: 0;
+    /* 半透明+模糊：底层JS已映射为行动方棋盘数据，透出也无妨 */
+    background: rgba(22, 33, 62, 0.92);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    font-size: 14px; color: var(--dim); text-align: center; line-height: 1.8;
+    z-index: 10; pointer-events: none; transition: opacity 0.3s;
+    backdrop-filter: blur(4px); user-select: none;
+}
+.board-cover.hidden { opacity: 0; }
+
+/* ===== 棋盘网格：CSS Grid 10×10 ===== */
+.board {
+    display: grid;
+    grid-template-columns: repeat(10, var(--cell-size));
+    grid-template-rows: repeat(10, var(--cell-size));
+    gap: var(--gap); padding: 3px;
+    background: var(--primary); border-radius: 6px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+/* ===== 格子基础样式 ===== */
+.cell {
+    width: var(--cell-size); height: var(--cell-size);
+    background: var(--unknown); border-radius: 2px;
+    cursor: pointer; transition: all 0.12s ease;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: bold; user-select: none;
+}
+.cell:hover { outline: 2px solid rgba(255,255,255,0.4); outline-offset: -2px; z-index: 1; }
+
+/* 我方棋盘：飞机显示蓝/橙色，不可点击 */
+.my-board .cell { cursor: default; }
+.my-board .cell:hover { outline: none; }
+.my-board .cell.cell-body  { background: var(--my-blue); box-shadow: inset 0 0 6px rgba(79,195,247,0.4); }
+.my-board .cell.cell-head  { background: var(--my-head); box-shadow: inset 0 0 8px rgba(255,112,67,0.6); }
+.my-board .cell.cell-empty { background: #1a2a3a; }
+
+/* 敌方棋盘：攻击结果状态 */
+.cell-unknown   { background: var(--unknown); }
+.cell-miss      { background: var(--miss); cursor: default; }
+.cell-hit       { background: var(--hit); cursor: default; }
+.cell-headshot  { background: var(--headshot); cursor: default; }
+.cell-attacked  { pointer-events: none; }
+
+/* 命中动画 */
+.cell-hit, .cell-headshot { animation: hitPulse 0.35s ease-out; }
+@keyframes hitPulse {
+    0% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+}
+.cell-headshot {
+    animation: headshotFlash 0.5s ease-out;
+    box-shadow: inset 0 0 12px rgba(255,235,59,0.7);
+}
+@keyframes headshotFlash {
+    0%   { background: #ffeb3b; transform: scale(1.4); }
+    50%  { background: #ff5722; transform: scale(1.1); }
+    100% { background: var(--headshot); transform: scale(1); }
+}
+
+/* 棋盘禁用：非当前回合变暗 + 不可点击 */
+.enemy-board.disabled { opacity: 0.5; pointer-events: none; }
+.enemy-board.disabled .cell { cursor: default; }
+
+/* 剩余敌机计数 */
+.hint { font-size: 12px; color: var(--dim); margin-top: 3px; }
+.hint b { color: var(--accent); font-size: 16px; }
+
+/* ===== 游戏结束弹窗 ===== */
+#game-over-modal {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+}
+.modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); }
+
+.modal-content {
+    position: relative; background: var(--surface); border-radius: 16px;
+    padding: 36px 44px; text-align: center;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    border: 2px solid var(--accent);
+    animation: modalIn 0.3s ease-out;
+}
+@keyframes modalIn {
+    from { transform: scale(0.8); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+}
+#winner-text { font-size: 24px; margin-bottom: 20px; color: var(--gold); }
+
+/* ===== 响应式：窄屏（手机/平板） ===== */
+@media (max-width: 900px) {
+    :root { --cell-size: 28px; }
+    #game-area { flex-direction: column; align-items: center; }
+    .zone-divider { width: 80%; height: 2px; margin: 8px 0; }
+    .zone-boards { gap: 8px; }
+}
